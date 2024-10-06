@@ -56,6 +56,36 @@ void pageRank(Graph g, double *solution, double damping, double convergence) {
     double globalDiff = 0.0;
     int iter = 0;
 
+    // for (int i = 0; i < numNodes; ++i) {
+    //     solution[i] = equal_prob;
+    // }
+    // while (!converged && iter < MAXITER) {
+    //     iter++;
+    //     broadcastScore = 0.0;
+    //     globalDiff = 0.0;
+    //     for (int i = 0; i < numNodes; ++i) {
+    //         score_new[i] = 0.0;
+
+    //         if (outgoing_size(g, i) == 0) {
+    //             broadcastScore += score_old[i];
+    //         }
+    //         const Vertex *in_begin = incoming_begin(g, i);
+    //         const Vertex *in_end = incoming_end(g, i);
+    //         for (const Vertex *v = in_begin; v < in_end; ++v) {
+    //             score_new[i] += score_old[*v] / outgoing_size(g, *v);
+    //         }
+    //         score_new[i] =
+    //             damping * score_new[i] + (1.0 - damping) * equal_prob;
+    //     }
+    //     for (int i = 0; i < numNodes; ++i) {
+    //         score_new[i] += damping * broadcastScore * equal_prob;
+    //         globalDiff += std::abs(score_new[i] - score_old[i]);
+    //     }
+    //     converged = (globalDiff < convergence);
+    //     std::swap(score_new, score_old);
+    // }
+
+    #pragma omp parallel for
     for (int i = 0; i < numNodes; ++i) {
         solution[i] = equal_prob;
     }
@@ -63,27 +93,50 @@ void pageRank(Graph g, double *solution, double damping, double convergence) {
         iter++;
         broadcastScore = 0.0;
         globalDiff = 0.0;
-        for (int i = 0; i < numNodes; ++i) {
-            score_new[i] = 0.0;
 
-            if (outgoing_size(g, i) == 0) {
-                broadcastScore += score_old[i];
+        // 使用 OpenMP 并行化外层循环
+        #pragma omp parallel
+        {
+            double localBroadcastScore = 0.0; // 每个线程的局部变量
+            double localGlobalDiff = 0.0;
+
+            // 计算新的分数
+            #pragma omp for nowait
+            for (int i = 0; i < numNodes; ++i) {
+                score_new[i] = 0.0;
+
+                if (outgoing_size(g, i) == 0) {
+                    localBroadcastScore += score_old[i]; // 每个线程累加本地的broadcastScore
+                }
+
+                const Vertex *in_begin = incoming_begin(g, i);
+                const Vertex *in_end = incoming_end(g, i);
+                for (const Vertex *v = in_begin; v < in_end; ++v) {
+                    score_new[i] += score_old[*v] / outgoing_size(g, *v);
+                }
+                score_new[i] =
+                    damping * score_new[i] + (1.0 - damping) * equal_prob;
             }
-            const Vertex *in_begin = incoming_begin(g, i);
-            const Vertex *in_end = incoming_end(g, i);
-            for (const Vertex *v = in_begin; v < in_end; ++v) {
-                score_new[i] += score_old[*v] / outgoing_size(g, *v);
+
+            // 通过临界区将每个线程的局部 broadcastScore 合并到全局 broadcastScore
+            #pragma omp critical
+            {
+                broadcastScore += localBroadcastScore;
             }
-            score_new[i] =
-                damping * score_new[i] + (1.0 - damping) * equal_prob;
+
+            // 计算全局差异并更新分数
+            #pragma omp for reduction(+:globalDiff)
+            for (int i = 0; i < numNodes; ++i) {
+                score_new[i] += damping * broadcastScore * equal_prob;
+                globalDiff += std::abs(score_new[i] - score_old[i]);
+            }
         }
-        for (int i = 0; i < numNodes; ++i) {
-            score_new[i] += damping * broadcastScore * equal_prob;
-            globalDiff += std::abs(score_new[i] - score_old[i]);
-        }
+
+        // 检查收敛条件
         converged = (globalDiff < convergence);
         std::swap(score_new, score_old);
     }
+
     if (score_new != solution) {
         memcpy(solution, score_new, sizeof(double) * numNodes);
     }
