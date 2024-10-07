@@ -94,6 +94,7 @@ void pageRank(Graph g, double *solution, double damping, double convergence) {
         broadcastScore = 0.0;
         globalDiff = 0.0;
 
+#ifndef USE_REDUCTION
         // 使用 OpenMP 并行化外层循环
         #pragma omp parallel
         {
@@ -123,6 +124,24 @@ void pageRank(Graph g, double *solution, double damping, double convergence) {
                 broadcastScore += localBroadcastScore;
             }
         }
+#else
+        #pragma omp parallel for reduction(+:broadcastScore)
+        for (int i = 0; i < numNodes; ++i) {
+            score_new[i] = 0.0;
+
+            if (outgoing_size(g, i) == 0) {
+                broadcastScore += score_old[i];
+            }
+
+            const Vertex *in_begin = incoming_begin(g, i);
+            const Vertex *in_end = incoming_end(g, i);
+            for (const Vertex *v = in_begin; v < in_end; ++v) {
+                score_new[i] += score_old[*v] / outgoing_size(g, *v);
+            }
+            score_new[i] =
+                damping * score_new[i] + (1.0 - damping) * equal_prob;
+        }
+#endif
 
         // 计算全局差异并更新分数
         #pragma omp parallel for reduction(+:globalDiff)
