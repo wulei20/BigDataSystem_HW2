@@ -13,6 +13,8 @@ struct graph {
     // outgoing_edges[outgoing_starts[i]].  To iterate over all
     // outgoing edges, please see the top-down bfs implementation.
     int *outgoing_starts;
+    // outgoing_edges[outgoing_starts[i]] to outgoing_edges[outgoing_starts[i+1]]
+    // are the outgoing edges of vertex i.
     Vertex *outgoing_edges;
 
     int *incoming_starts;
