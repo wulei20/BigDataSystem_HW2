@@ -98,7 +98,6 @@ void pageRank(Graph g, double *solution, double damping, double convergence) {
         #pragma omp parallel
         {
             double localBroadcastScore = 0.0; // 每个线程的局部变量
-            double localGlobalDiff = 0.0;
 
             // 计算新的分数
             #pragma omp for nowait
@@ -123,13 +122,13 @@ void pageRank(Graph g, double *solution, double damping, double convergence) {
             {
                 broadcastScore += localBroadcastScore;
             }
+        }
 
-            // 计算全局差异并更新分数
-            #pragma omp for reduction(+:globalDiff)
-            for (int i = 0; i < numNodes; ++i) {
-                score_new[i] += damping * broadcastScore * equal_prob;
-                globalDiff += std::abs(score_new[i] - score_old[i]);
-            }
+        // 计算全局差异并更新分数
+        #pragma omp parallel for reduction(+:globalDiff)
+        for (int i = 0; i < numNodes; ++i) {
+            score_new[i] += damping * broadcastScore * equal_prob;
+            globalDiff += std::abs(score_new[i] - score_old[i]);
         }
 
         // 检查收敛条件
